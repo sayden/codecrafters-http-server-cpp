@@ -7,6 +7,26 @@
 #include <sys/socket.h>
 #include <sys/types.h>
 #include <unistd.h>
+#include <vector>
+
+std::vector<std::string> split(std::string in, std::string splitstr) {
+  std::vector<std::string> out;
+  size_t pos = 0;
+  while ((pos = in.find(splitstr)) != std::string::npos) {
+    out.push_back(in.substr(0, pos));
+    in.erase(0, pos + splitstr.length());
+  }
+  out.push_back(in);
+  return out;
+}
+
+std::string get_url(std::string msg) {
+  std::vector<std::string> tokens = split(msg, " ");
+  if (tokens.size() < 2) {
+    return "";
+  }
+  return tokens[1];
+}
 
 int main(int argc, char **argv) {
   // Flush after every std::cout / std::cerr
@@ -57,10 +77,31 @@ int main(int argc, char **argv) {
   int client_sock = accept(server_fd, (struct sockaddr *)&client_addr,
                            (socklen_t *)&client_addr_len);
 
-  const char *msg = "HTTP/1.1 200 OK\r\n\r\n";
-  send(client_sock, msg, strlen(msg), 0);
+  char msg[65536] = {};
+  if (recvfrom(client_sock, msg, sizeof(msg) - 1, 0,
+               (struct sockaddr *)&client_addr,
+               (socklen_t *)&client_addr_len) == SO_ERROR) {
+    std::cerr << "listen failed\n";
+    return 1;
+  }
 
-  std::cout << "Client connected\n";
+  std::vector<std::string> tokens = split(msg, "\r\n");
+  std::string url = get_url(msg);
+  if (url == "") {
+    std::cerr << "Failed to parse URL\n";
+    close(server_fd);
+    return 1;
+  }
+
+  if (url == "/") {
+    std::string response = "HTTP/1.1 200 OK\r\n\r\n";
+    send(client_sock, response.c_str(), response.length(), 0);
+    close(server_fd);
+    return 0;
+  }
+
+  std::string response = std::string("HTTP/1.1 404 Not Found\r\n\r\n");
+  send(client_sock, response.c_str(), response.length(), 0);
 
   close(server_fd);
 
